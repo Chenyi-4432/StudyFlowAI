@@ -10,9 +10,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# =============================
-# SUPABASE REST API CONFIG
-# =============================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
@@ -28,18 +25,24 @@ TASKS_URL = f"{SUPABASE_URL}/rest/v1/tasks"
 
 
 # =============================
-# DATABASE FUNCTIONS
+# Database functions
 # =============================
-def get_courses():
-    r = requests.get(f"{COURSES_URL}?select=*", headers=HEADERS)
+def get_courses(user_email):
+    r = requests.get(
+        f"{COURSES_URL}?select=*&user_email=eq.{user_email}",
+        headers=HEADERS
+    )
     if r.status_code == 200:
         return r.json()
     st.error(f"Failed to load courses: {r.text}")
     return []
 
 
-def add_course(course_name):
-    data = {"course_name": course_name}
+def add_course(course_name, user_email):
+    data = {
+        "course_name": course_name,
+        "user_email": user_email
+    }
     r = requests.post(COURSES_URL, headers=HEADERS, json=data)
     if r.status_code not in [200, 201]:
         st.error(f"Failed to add course: {r.text}")
@@ -51,8 +54,11 @@ def delete_course(course_id):
         st.error(f"Failed to delete course: {r.text}")
 
 
-def get_tasks():
-    r = requests.get(f"{TASKS_URL}?select=*", headers=HEADERS)
+def get_tasks(user_email):
+    r = requests.get(
+        f"{TASKS_URL}?select=*&user_email=eq.{user_email}",
+        headers=HEADERS
+    )
     if r.status_code == 200:
         return r.json()
     st.error(f"Failed to load tasks: {r.text}")
@@ -66,8 +72,11 @@ def add_task(task_data):
 
 
 def update_task_completed(task_id, completed):
-    data = {"completed": completed}
-    r = requests.patch(f"{TASKS_URL}?id=eq.{task_id}", headers=HEADERS, json=data)
+    r = requests.patch(
+        f"{TASKS_URL}?id=eq.{task_id}",
+        headers=HEADERS,
+        json={"completed": completed}
+    )
     if r.status_code not in [200, 204]:
         st.error(f"Failed to update task: {r.text}")
 
@@ -79,7 +88,7 @@ def delete_task(task_id):
 
 
 # =============================
-# THEME
+# Theme
 # =============================
 THEMES = {
     "White Original": {
@@ -113,28 +122,23 @@ def apply_theme(theme_name):
             background-color: {theme["bg"]};
             color: {theme["text"]};
         }}
-
         section[data-testid="stSidebar"] {{
             background-color: {theme["sidebar"]};
         }}
-
         h1, h2, h3, h4, p, label, span, div {{
             color: {theme["text"]};
         }}
-
         .main-title {{
             color: {theme["primary"]};
             font-size: 48px;
             font-weight: 800;
         }}
-
         .section-title {{
             color: {theme["primary"]};
             font-size: 28px;
             font-weight: 700;
             margin-top: 25px;
         }}
-
         .stButton button {{
             background-color: {theme["primary"]};
             color: white;
@@ -149,7 +153,7 @@ def apply_theme(theme_name):
 
 
 # =============================
-# HELPER FUNCTIONS
+# Helper functions
 # =============================
 def calculate_priority(days_left, difficulty, estimated_hours):
     difficulty_score = {
@@ -165,7 +169,7 @@ def calculate_priority(days_left, difficulty, estimated_hours):
     return urgency_score + difficulty_points + workload_points
 
 
-def parse_smart_input(text, courses):
+def parse_smart_input(text, courses, user_email):
     lower_text = text.lower()
 
     difficulty = "Medium"
@@ -204,7 +208,8 @@ def parse_smart_input(text, courses):
         "deadline": str(deadline),
         "difficulty": difficulty,
         "estimated_hours": estimated_hours,
-        "completed": False
+        "completed": False,
+        "user_email": user_email
     }
 
 
@@ -237,8 +242,23 @@ def generate_steps(difficulty):
 
 
 # =============================
-# SIDEBAR
+# Sidebar
 # =============================
+st.sidebar.header("👤 User Login")
+
+user_email = st.sidebar.text_input(
+    "Enter your email or username",
+    placeholder="example@email.com"
+)
+
+if user_email.strip() == "":
+    st.warning("Please enter your email or username to use StudyFlow AI.")
+    st.stop()
+
+current_user = user_email.strip().lower()
+
+st.sidebar.success(f"Logged in as: {current_user}")
+
 st.sidebar.header("🎨 Appearance")
 
 theme_choice = st.sidebar.radio(
@@ -248,9 +268,13 @@ theme_choice = st.sidebar.radio(
 
 apply_theme(theme_choice)
 
-courses = get_courses()
-tasks = get_tasks()
+courses = get_courses(current_user)
+tasks = get_tasks(current_user)
 
+
+# =============================
+# Course settings
+# =============================
 st.sidebar.header("📘 Course Settings")
 
 new_course = st.sidebar.text_input("Add New Course")
@@ -259,7 +283,7 @@ if st.sidebar.button("Add Course"):
     if new_course.strip() == "":
         st.sidebar.warning("Please enter a course name.")
     else:
-        add_course(new_course.strip())
+        add_course(new_course.strip(), current_user)
         st.rerun()
 
 if len(courses) > 0:
@@ -277,6 +301,9 @@ else:
     st.sidebar.info("No courses yet. Add your first course.")
 
 
+# =============================
+# Add task
+# =============================
 st.sidebar.header("➕ Add New Task")
 
 input_mode = st.sidebar.radio(
@@ -294,7 +321,7 @@ if input_mode == "Smart Input":
         if smart_text.strip() == "":
             st.sidebar.warning("Please enter task description.")
         else:
-            task_data = parse_smart_input(smart_text, courses)
+            task_data = parse_smart_input(smart_text, courses, current_user)
             add_task(task_data)
             st.rerun()
 
@@ -329,13 +356,14 @@ else:
                 "deadline": str(deadline),
                 "difficulty": difficulty,
                 "estimated_hours": estimated_hours,
-                "completed": False
+                "completed": False,
+                "user_email": current_user
             })
             st.rerun()
 
 
 # =============================
-# MAIN PAGE
+# Main page
 # =============================
 st.markdown('<div class="main-title">📚 StudyFlow AI</div>', unsafe_allow_html=True)
 st.subheader("AI-powered course task manager for international students")
@@ -416,12 +444,10 @@ else:
 
     if len(unfinished_df) > 0:
         top_task = unfinished_df.iloc[0]
-
         st.success(
             f"Today, you should focus on **{top_task['task']}** "
             f"for **{top_task['course']}**."
         )
-
     else:
         st.success("🎉 No unfinished tasks today.")
 
